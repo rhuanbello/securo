@@ -29,7 +29,7 @@ x-backend-env: &backend-env
   AGENTS_ENABLED: "false"
 
 x-backend-base: &backend-base
-  image: "ghcr.io/rhuanbello/securo-backend:sha-${SOURCE_COMMIT:?SOURCE_COMMIT is required}"
+  image: "ghcr.io/rhuanbello/securo-backend:${SECURO_IMAGE_TAG:?SECURO_IMAGE_TAG is required}"
   environment: *backend-env
 
   depends_on:
@@ -107,7 +107,7 @@ services:
       --loglevel=info
 
   frontend:
-    image: "ghcr.io/rhuanbello/securo-frontend:sha-${SOURCE_COMMIT:?SOURCE_COMMIT is required}"
+    image: "ghcr.io/rhuanbello/securo-frontend:${SECURO_IMAGE_TAG:?SECURO_IMAGE_TAG is required}"
 
     environment:
       BACKEND_URL: "http://backend:8000"
