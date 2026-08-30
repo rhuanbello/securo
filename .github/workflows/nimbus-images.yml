@@ -233,15 +233,24 @@ jobs:
             COMMIT="$(echo "$RESPONSE" | jq -r '.commit // empty')"
 
             echo "Coolify deployment status: ${STATUS:-unknown}"
+            echo "Coolify deployment commit: ${COMMIT:-unknown}"
 
-            if [[ -n "$COMMIT" && "$COMMIT" != "$GITHUB_SHA" ]]; then
+            # Coolify may report the symbolic value HEAD while the deployment
+            # commit is unresolved. Only a concrete, conflicting commit is a
+            # release-integrity failure.
+            if [[ -n "$COMMIT" && "$COMMIT" != "HEAD" && "$COMMIT" != "$GITHUB_SHA" ]]; then
               echo "Coolify is deploying commit $COMMIT, expected $GITHUB_SHA." >&2
               exit 1
             fi
 
             case "$STATUS" in
               finished|success|successful)
-                echo "Nimbus deployment completed successfully for $GITHUB_SHA."
+                if [[ -n "$COMMIT" && "$COMMIT" != "HEAD" ]]; then
+                  echo "Nimbus deployment completed successfully for verified commit $COMMIT."
+                else
+                  echo "Nimbus deployment completed successfully; Coolify reported ${COMMIT:-no commit} instead of a resolved SHA."
+                  echo "The deployment was triggered only after verifying immutable images for $GITHUB_SHA."
+                fi
                 exit 0
                 ;;
               failed|cancelled|cancelled-by-user)
