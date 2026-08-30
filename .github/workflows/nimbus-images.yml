@@ -7,10 +7,6 @@ on:
 
   workflow_dispatch:
 
-concurrency:
-  group: nimbus-production-${{ github.ref }}
-  cancel-in-progress: true
-
 env:
   REGISTRY: ghcr.io
   IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}
@@ -51,7 +47,7 @@ jobs:
         with:
           images: ${{ env.IMAGE_PREFIX }}/securo-backend
           tags: |
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha,prefix=sha-
             type=raw,value=${{ env.IMMUTABLE_TAG }}
 
@@ -97,7 +93,7 @@ jobs:
         with:
           images: ${{ env.IMAGE_PREFIX }}/securo-frontend
           tags: |
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha,prefix=sha-
             type=raw,value=${{ env.IMMUTABLE_TAG }}
 
@@ -123,6 +119,9 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    concurrency:
+      group: nimbus-production-deploy
+      cancel-in-progress: false
     permissions:
       contents: read
       packages: read
@@ -149,7 +148,35 @@ jobs:
 
           echo "Both immutable images are available: ${IMMUTABLE_TAG}"
 
+      - name: Confirm release is still current main
+        id: current
+        run: |
+          set -euo pipefail
+
+          CURRENT_MAIN="$(
+            git ls-remote \
+              "https://github.com/${GITHUB_REPOSITORY}.git" \
+              refs/heads/main |
+              awk '{print $1}'
+          )"
+
+          if [[ -z "$CURRENT_MAIN" ]]; then
+            echo "Could not resolve current main commit." >&2
+            exit 1
+          fi
+
+          echo "Current main: $CURRENT_MAIN"
+          echo "This run:     $GITHUB_SHA"
+
+          if [[ "$CURRENT_MAIN" == "$GITHUB_SHA" ]]; then
+            echo "should_deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_deploy=false" >> "$GITHUB_OUTPUT"
+            echo "This release was superseded by newer main; skipping deployment."
+          fi
+
       - name: Trigger Coolify deployment
+        if: steps.current.outputs.should_deploy == 'true'
         id: deploy
         env:
           COOLIFY_WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK }}
@@ -185,6 +212,7 @@ jobs:
           echo "deployment_uuid=$DEPLOYMENT_UUID" >> "$GITHUB_OUTPUT"
 
       - name: Wait for Coolify deployment
+        if: steps.current.outputs.should_deploy == 'true'
         env:
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
           DEPLOYMENT_UUID: ${{ steps.deploy.outputs.deployment_uuid }}
