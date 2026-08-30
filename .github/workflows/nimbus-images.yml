@@ -192,7 +192,7 @@ jobs:
               --fail-with-body \
               --silent \
               --show-error \
-              --request GET \
+              --request POST \
               "$COOLIFY_WEBHOOK" \
               --header "Authorization: Bearer $COOLIFY_TOKEN"
           )"
