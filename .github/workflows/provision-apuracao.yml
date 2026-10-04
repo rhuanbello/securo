@@ -1,0 +1,152 @@
+name: Provision Apuracao on Nimbus
+
+on:
+  push:
+    branches:
+      - ops/provision-apuracao
+
+permissions:
+  contents: read
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      API: https://coolify.rhuanbello.com/api/v1
+
+    steps:
+      - name: Provision or reuse Coolify resources
+        env:
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          test -n "$COOLIFY_TOKEN"
+          AUTH=(-H "Authorization: Bearer $COOLIFY_TOKEN")
+          JSON=(-H "Content-Type: application/json")
+
+          get() {
+            curl --fail-with-body --silent --show-error "${AUTH[@]}" "$API$1"
+          }
+
+          post() {
+            curl --fail-with-body --silent --show-error -X POST "${AUTH[@]}" "${JSON[@]}" "$API$1" -d "$2"
+          }
+
+          echo "Resolving Nimbus server..."
+          SERVERS="$(get /servers)"
+          SERVER_UUID="$(echo "$SERVERS" | jq -r '[.[] | select((.name // "") == "nimbus")][0].uuid // .[0].uuid // empty')"
+          test -n "$SERVER_UUID"
+
+          echo "Resolving Coolify GitHub App..."
+          GITHUB_APPS="$(get /github-apps)"
+          GITHUB_APP_UUID="$(echo "$GITHUB_APPS" | jq -r '[.[] | select((.name // "") == "nimbus-coolify-app")][0].uuid // .[0].uuid // empty')"
+          test -n "$GITHUB_APP_UUID"
+
+          echo "Resolving/creating project..."
+          PROJECTS="$(get /projects)"
+          PROJECT_UUID="$(echo "$PROJECTS" | jq -r '[.[] | select((.name // "" | ascii_downcase) == "apuracao")][0].uuid // empty')"
+
+          if [[ -z "$PROJECT_UUID" ]]; then
+            PROJECT_UUID="$(post /projects '{"name":"Apuracao","description":"Live Brazilian election results"}' | jq -r '.uuid')"
+          fi
+          test -n "$PROJECT_UUID"
+
+          echo "Resolving/creating production environment..."
+          ENVIRONMENTS="$(get "/projects/$PROJECT_UUID/environments")"
+          ENV_NAME="$(echo "$ENVIRONMENTS" | jq -r '[.[] | select((.name // "") == "production")][0].name // empty')"
+
+          if [[ -z "$ENV_NAME" ]]; then
+            post "/projects/$PROJECT_UUID/environments" '{"name":"production"}' >/dev/null
+          fi
+
+          echo "Resolving existing Apuracao application..."
+          APPLICATIONS="$(get /applications)"
+          APP_UUID="$(echo "$APPLICATIONS" | jq -r '[.[] | select(((.git_repository // "") | contains("rhuanbello/apuracao")) or ((.name // "" | ascii_downcase) == "apuracao"))][0].uuid // empty')"
+
+          if [[ -z "$APP_UUID" ]]; then
+            echo "Creating Docker Compose application..."
+            BODY="$(
+              jq -n                 --arg project_uuid "$PROJECT_UUID"                 --arg server_uuid "$SERVER_UUID"                 --arg github_app_uuid "$GITHUB_APP_UUID"                 '{
+                  project_uuid: $project_uuid,
+                  server_uuid: $server_uuid,
+                  environment_name: "production",
+                  github_app_uuid: $github_app_uuid,
+                  git_repository: "rhuanbello/apuracao",
+                  git_branch: "main",
+                  build_pack: "dockercompose",
+                  name: "apuracao",
+                  description: "Live Brazilian election results",
+                  docker_compose_location: "/deploy/nimbus/docker-compose.yml",
+                  instant_deploy: true,
+                  autogenerate_domain: true,
+                  is_auto_deploy_enabled: true,
+                  is_force_https_enabled: true,
+                  connect_to_docker_network: true
+                }'
+            )"
+
+            RESPONSE="$(post /applications/private-github-app "$BODY")"
+            echo "$RESPONSE" | jq .
+            APP_UUID="$(echo "$RESPONSE" | jq -r '.uuid // empty')"
+          else
+            echo "Application already exists: $APP_UUID"
+            echo "Triggering redeploy..."
+            curl --fail-with-body --silent --show-error               -X POST "${AUTH[@]}"               "$API/applications/$APP_UUID/restart" >/dev/null || true
+          fi
+
+          test -n "$APP_UUID"
+
+          echo "Waiting for application state..."
+          for attempt in $(seq 1 60); do
+            APP="$(get "/applications/$APP_UUID")"
+            STATUS="$(echo "$APP" | jq -r '.status // empty')"
+            FQDN="$(echo "$APP" | jq -r '.fqdn // empty')"
+            COMPOSE_DOMAINS="$(echo "$APP" | jq -r '.docker_compose_domains // empty')"
+
+            echo "status=${STATUS:-unknown}"
+
+            if [[ -n "$FQDN" ]]; then
+              echo "fqdn=$FQDN"
+            fi
+            if [[ -n "$COMPOSE_DOMAINS" && "$COMPOSE_DOMAINS" != "null" ]]; then
+              echo "compose_domains=$COMPOSE_DOMAINS"
+            fi
+
+            case "$STATUS" in
+              running*|healthy*|exited:unhealthy)
+                break
+                ;;
+            esac
+
+            sleep 10
+          done
+
+          APP="$(get "/applications/$APP_UUID")"
+          echo "Final application summary:"
+          echo "$APP" | jq '{uuid,name,status,fqdn,docker_compose_domains,git_repository,git_branch,build_pack}'
+
+          WEB_URL="$(echo "$APP" | jq -r '
+            if (.docker_compose_domains | type) == "string" then
+              (.docker_compose_domains | fromjson? | .web.domain // empty)
+            elif (.docker_compose_domains | type) == "object" then
+              .docker_compose_domains.web.domain // empty
+            else
+              empty
+            end
+          ')"
+
+          if [[ -z "$WEB_URL" ]]; then
+            WEB_URL="$(echo "$APP" | jq -r '.fqdn // empty' | cut -d, -f1)"
+          fi
+
+          if [[ -n "$WEB_URL" ]]; then
+            WEB_URL="${WEB_URL%/}"
+            echo "Testing $WEB_URL/api/health"
+            curl --fail-with-body --silent --show-error --retry 6 --retry-delay 5 "$WEB_URL/api/health" | jq .
+            echo "DEPLOYED_URL=$WEB_URL"
+          else
+            echo "Application exists but no public URL was resolved." >&2
+            exit 1
+          fi
