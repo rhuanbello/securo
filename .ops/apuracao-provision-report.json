@@ -1,9 +1,0 @@
-{
-  "ok": false,
-  "stage": "project",
-  "http": {
-    "projects": "200",
-    "create_project": "403"
-  },
-  "message": "Missing required permissions: write"
-}
