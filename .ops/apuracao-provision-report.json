@@ -1,66 +1,9 @@
 {
-  "secret_available": true,
+  "ok": false,
+  "stage": "project",
   "http": {
     "projects": "200",
-    "servers": "200",
-    "github_apps": "200",
-    "applications": "200"
+    "create_project": "403"
   },
-  "projects": [
-    {
-      "uuid": "5rd03zgc4k3m0nq6wp1udn69",
-      "name": "GeoCalc"
-    },
-    {
-      "uuid": "ipqdxomsfuz8oru6vnklukl3",
-      "name": "Securo"
-    },
-    {
-      "uuid": "r9vcfp6dkhulitafx2f8wyef",
-      "name": "Trips"
-    }
-  ],
-  "servers": [
-    {
-      "uuid": "aw6dv4e0y3xcxvf1wqsyoxby",
-      "name": "nimbus"
-    }
-  ],
-  "github_apps": [
-    {
-      "uuid": "bsewnzf8j3w1u3ih96hxamiu",
-      "name": "Public GitHub",
-      "organization": null,
-      "is_public": true
-    },
-    {
-      "uuid": "glzwmzk0xnbnpye2vkjlaf0s",
-      "name": "nimbus-coolify-app",
-      "organization": null,
-      "is_public": false
-    }
-  ],
-  "applications": [
-    {
-      "uuid": "ejbpgywx9jspowjz4jjf1ijh",
-      "name": "GeoCalc Resource",
-      "status": "running:unknown",
-      "git_repository": "rhuanbello/geocalc",
-      "build_pack": "railpack"
-    },
-    {
-      "uuid": "yybfejmuuh6uc1fns0wiq4ev",
-      "name": "Securo Resource",
-      "status": "running:unknown",
-      "git_repository": "rhuanbello/securo",
-      "build_pack": "dockercompose"
-    },
-    {
-      "uuid": "9yajashakvxxls8oxeoyyqoo",
-      "name": "trips:main-9yajashakvxxls8oxeoyyqoo",
-      "status": "running:healthy",
-      "git_repository": "rhuanbello/trips",
-      "build_pack": "dockerfile"
-    }
-  ]
+  "message": "Missing required permissions: write"
 }
